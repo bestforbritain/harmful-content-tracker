@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  password      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+enum Platform {
+  TWITTER
+  FACEBOOK
+  TIKTOK
+  INSTAGRAM
+  YOUTUBE
+  REDDIT
+  THREADS
+  OTHER
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model Post {
+  id            String     @id @default(cuid())
+  url           String
+  platform      Platform
+  contentText   String?    @db.Text
+  screenshotUrl String?
+  dateFound     DateTime   @default(now())
+  datePosted    DateTime?
+  status        PostStatus @default(DRAFT)
+  notes         String?    @db.Text
+  attribution   String?
+
+  // Metadata from oEmbed / Open Graph
+  metaTitle       String?
+  metaDescription String?
+  metaImage       String?
+  embedHtml       String?  @db.Text
+
+  // Submitter info (for public submissions)
+  submitterEmail String?
+  submitterName  String?
+
+  tags PostTag[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([platform])
+  @@index([status])
+  @@index([dateFound])
+}
+
+model Tag {
+  id    String    @id @default(cuid())
+  name  String    @unique
+  color String    @default("#6B7280")
+  posts PostTag[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PostTag {
+  postId String
+  tagId  String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId])
+}

@@ -97,6 +97,80 @@ function parseInstagramDate(description: string | null): string | null {
   return null;
 }
 
+// Fetch Instagram data using facebookexternalhit UA (Meta's own crawler)
+// Instagram blocks Googlebot from cloud IPs but is more permissive with
+// its own crawler. Falls back to extracting OG tags from the HTML response.
+async function fetchInstagramData(url: string) {
+  try {
+    // Clean URL — strip tracking params
+    const cleanUrl = url.split("?")[0];
+
+    // Try with facebookexternalhit UA — Instagram/Meta's own crawler
+    const res = await fetch(cleanUrl, {
+      headers: {
+        "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+
+    const html = await res.text();
+
+    // Check if we got a real page with OG tags (not a login wall)
+    if (!html.includes('og:image') && !html.includes('og:title')) {
+      return null;
+    }
+
+    const getMetaContent = (property: string): string | null => {
+      const patterns = [
+        new RegExp(
+          `<meta[^>]*property=["']${property}["'][^>]*content=["']([^"']*)["']`,
+          "i"
+        ),
+        new RegExp(
+          `<meta[^>]*content=["']([^"']*)["'][^>]*property=["']${property}["']`,
+          "i"
+        ),
+        new RegExp(
+          `<meta[^>]*name=["']${property}["'][^>]*content=["']([^"']*)["']`,
+          "i"
+        ),
+      ];
+      for (const pattern of patterns) {
+        const match = html.match(pattern);
+        if (match) return match[1];
+      }
+      return null;
+    };
+
+    const rawTitle = getMetaContent("og:title") || getMetaContent("twitter:title");
+    const rawDescription =
+      getMetaContent("og:description") ||
+      getMetaContent("twitter:description") ||
+      getMetaContent("description");
+    const rawImage = getMetaContent("og:image") || getMetaContent("twitter:image");
+
+    const title = rawTitle ? decodeHtmlEntities(rawTitle) : null;
+    const description = rawDescription ? decodeHtmlEntities(rawDescription) : null;
+    const image = rawImage ? decodeHtmlEntities(rawImage) : null;
+
+    // Parse date from description text ("username on January 14, 2026: ...")
+    const datePosted = parseInstagramDate(description);
+
+    return {
+      title,
+      description,
+      image,
+      embedHtml: null,
+      contentText: description,
+      datePosted,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchOpenGraph(url: string) {
   try {
     // Use a bot-like user agent — platforms like X only serve OG meta tags
@@ -218,6 +292,8 @@ export async function POST(request: NextRequest) {
 
   if (platform === Platform.TWITTER) {
     metadata = await fetchTwitterData(url);
+  } else if (platform === Platform.INSTAGRAM) {
+    metadata = await fetchInstagramData(url);
   }
 
   if (!metadata) {

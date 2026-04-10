@@ -23,6 +23,7 @@ type PostWithTags = {
   metaImage: string | null;
   metaTitle: string | null;
   dateFound: string;
+  datePosted: string | null;
   attribution: string | null;
   tags: Array<{ tag: { id: string; name: string; color: string } }>;
 };

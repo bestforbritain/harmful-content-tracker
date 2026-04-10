@@ -123,6 +123,28 @@ export default function NewPostPage() {
     e.preventDefault();
     setSaving(true);
 
+    // Archive the screenshot/preview image to our own storage
+    let archivedScreenshotUrl = screenshotUrl || null;
+    const imageToArchive = screenshotUrl || preview?.metadata.image;
+    if (imageToArchive) {
+      try {
+        const archiveRes = await fetch("/api/archive-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageUrl: imageToArchive,
+            postId: Date.now().toString(),
+          }),
+        });
+        if (archiveRes.ok) {
+          const { url: archivedUrl } = await archiveRes.json();
+          archivedScreenshotUrl = archivedUrl;
+        }
+      } catch {
+        // Archiving failed — keep the original URL as fallback
+      }
+    }
+
     const res = await fetch("/api/posts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -130,7 +152,7 @@ export default function NewPostPage() {
         url,
         platform,
         contentText: contentText || null,
-        screenshotUrl: screenshotUrl || null,
+        screenshotUrl: archivedScreenshotUrl,
         datePosted: datePosted || null,
         status,
         notes: notes || null,

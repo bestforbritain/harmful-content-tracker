@@ -20,6 +20,7 @@ type PostWithTags = {
   metaImage: string | null;
   metaTitle: string | null;
   dateFound: string;
+  datePosted: string | null;
   attribution: string | null;
   tags: Array<{ tag: { id: string; name: string; color: string } }>;
 };
@@ -96,7 +97,10 @@ export default function PostCard({ post }: { post: PostWithTags }) {
         <div className="flex items-center justify-between text-xs text-muted">
           <span className="flex items-center gap-1">
             <Calendar size={12} />
-            {format(new Date(post.dateFound), "d MMM yyyy")}
+            {format(
+              new Date(post.datePosted || post.dateFound),
+              "d MMM yyyy"
+            )}
           </span>
           {post.attribution && (
             <span className="flex items-center gap-1">

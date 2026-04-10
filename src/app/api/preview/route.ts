@@ -68,54 +68,33 @@ async function fetchTwitterData(url: string) {
   }
 }
 
-// Use Instagram's oEmbed endpoint for reliable metadata extraction
-// Instagram blocks OG tag fetching from cloud IPs, but oEmbed works
-async function fetchInstagramData(url: string) {
-  try {
-    // Clean the URL — remove query params for the oEmbed request
-    const cleanUrl = url.split("?")[0];
-    const oembedUrl = `https://api.instagram.com/oembed/?url=${encodeURIComponent(cleanUrl)}&omitscript=true`;
-    const res = await fetch(oembedUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; ArchiveBot/1.0)",
-      },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
+// Decode HTML entities in strings (e.g. &amp; → &, &#064; → @)
+function decodeHtmlEntities(str: string): string {
+  return str
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
+}
 
-    // Extract caption from the title field
-    const caption = data.title || null;
-
-    // thumbnail_url provides the post image
-    const image = data.thumbnail_url || null;
-
-    // The author name
-    const authorName = data.author_name || null;
-
-    // Try to extract date from the HTML embed (Instagram sometimes includes a datetime attribute)
-    let datePosted: string | null = null;
-    if (data.html) {
-      const dateMatch = data.html.match(/datetime="([^"]+)"/);
-      if (dateMatch) {
-        const parsed = new Date(dateMatch[1]);
-        if (!isNaN(parsed.getTime())) {
-          datePosted = parsed.toISOString().split("T")[0];
-        }
-      }
+// Parse a date from Instagram's description format:
+// "123 likes, 45 comments - username on January 14, 2026: ..."
+function parseInstagramDate(description: string | null): string | null {
+  if (!description) return null;
+  // Match patterns like "on January 14, 2026" or "on 14 January 2026"
+  const match = description.match(
+    /on\s+(\w+\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+\w+\s+\d{4})/i
+  );
+  if (match) {
+    const parsed = new Date(match[1]);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().split("T")[0];
     }
-
-    return {
-      title: authorName ? `${authorName} on Instagram` : null,
-      description: caption,
-      image,
-      embedHtml: data.html || null,
-      contentText: caption,
-      datePosted,
-    };
-  } catch {
-    return null;
   }
+  return null;
 }
 
 async function fetchOpenGraph(url: string) {
@@ -156,17 +135,22 @@ async function fetchOpenGraph(url: string) {
       return null;
     };
 
-    const title =
+    const rawTitle =
       getMetaContent("og:title") ||
       getMetaContent("twitter:title") ||
       html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ||
       null;
-    const description =
+    const rawDescription =
       getMetaContent("og:description") ||
       getMetaContent("twitter:description") ||
       getMetaContent("description");
-    const image =
+    const rawImage =
       getMetaContent("og:image") || getMetaContent("twitter:image");
+
+    // Decode HTML entities — meta tag values often contain &amp; etc.
+    const title = rawTitle ? decodeHtmlEntities(rawTitle) : null;
+    const description = rawDescription ? decodeHtmlEntities(rawDescription) : null;
+    const image = rawImage ? decodeHtmlEntities(rawImage) : null;
 
     // Try to extract a published date from meta tags
     let datePosted: string | null = null;
@@ -177,10 +161,17 @@ async function fetchOpenGraph(url: string) {
       getMetaContent("publish_date") ||
       getMetaContent("DC.date.issued");
     if (rawDate) {
-      const parsed = new Date(rawDate);
+      const parsed = new Date(decodeHtmlEntities(rawDate));
       if (!isNaN(parsed.getTime())) {
         datePosted = parsed.toISOString().split("T")[0];
       }
+    }
+
+    // For Instagram, parse date from description text (no structured date meta)
+    if (!datePosted) {
+      const descForDate = rawDescription ? decodeHtmlEntities(rawDescription) : null;
+      const instagramDate = parseInstagramDate(descForDate);
+      if (instagramDate) datePosted = instagramDate;
     }
 
     return {
@@ -227,8 +218,6 @@ export async function POST(request: NextRequest) {
 
   if (platform === Platform.TWITTER) {
     metadata = await fetchTwitterData(url);
-  } else if (platform === Platform.INSTAGRAM) {
-    metadata = await fetchInstagramData(url);
   }
 
   if (!metadata) {

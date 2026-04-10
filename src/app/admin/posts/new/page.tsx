@@ -14,6 +14,8 @@ type PreviewData = {
     description: string | null;
     image: string | null;
     embedHtml: string | null;
+    contentText: string | null;
+    datePosted: string | null;
   };
 };
 
@@ -40,24 +42,66 @@ export default function NewPostPage() {
       .then(setTags);
   }, []);
 
-  async function fetchPreview() {
-    if (!url) return;
+  async function fetchPreview(fetchUrl?: string) {
+    const targetUrl = fetchUrl || url;
+    if (!targetUrl) return;
     setLoadingPreview(true);
     try {
       const res = await fetch("/api/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: targetUrl }),
       });
       if (res.ok) {
-        const data = await res.json();
+        const data: PreviewData = await res.json();
         setPreview(data);
         setPlatform(data.platform);
+
+        // Auto-populate fields from fetched metadata
+        if (data.metadata.contentText && !contentText) {
+          setContentText(data.metadata.contentText);
+        }
+        if (data.metadata.datePosted && !datePosted) {
+          setDatePosted(data.metadata.datePosted);
+        }
+        if (data.metadata.image && !screenshotUrl) {
+          setScreenshotUrl(data.metadata.image);
+        }
       }
     } catch {
       // Preview failed, that's okay
     }
     setLoadingPreview(false);
+  }
+
+  // Auto-fetch preview when a URL is pasted
+  function handleUrlChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const newUrl = e.target.value;
+    setUrl(newUrl);
+
+    // Detect paste: if the value looks like a complete URL, auto-fetch
+    try {
+      const parsed = new URL(newUrl);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        // Debounce: only fetch if this looks like a freshly pasted full URL
+        if (newUrl.length > 15 && !url) {
+          fetchPreview(newUrl);
+        }
+      }
+    } catch {
+      // Not a valid URL yet, that's fine
+    }
+  }
+
+  function handleUrlPaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const pasted = e.clipboardData.getData("text").trim();
+    try {
+      new URL(pasted);
+      // Let the onChange fire first, then fetch
+      setTimeout(() => fetchPreview(pasted), 100);
+    } catch {
+      // Not a URL
+    }
   }
 
   async function createTag() {
@@ -118,14 +162,15 @@ export default function NewPostPage() {
             <input
               type="url"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://x.com/user/status/..."
+              onChange={handleUrlChange}
+              onPaste={handleUrlPaste}
+              placeholder="Paste a URL — fields will auto-populate..."
               required
               className="flex-1 border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
             />
             <button
               type="button"
-              onClick={fetchPreview}
+              onClick={() => fetchPreview()}
               disabled={!url || loadingPreview}
               className="bg-navy text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-navy-dark disabled:opacity-50 flex items-center gap-2"
             >
@@ -184,7 +229,7 @@ export default function NewPostPage() {
           <h2 className="font-semibold mb-4">Details</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Platform</label>
+              <label className="block text-sm font-medium mb-1">Platform <span className="text-xs text-muted font-normal">(auto-detected)</span></label>
               <select
                 value={platform}
                 onChange={(e) => setPlatform(e.target.value as Platform)}
@@ -212,7 +257,7 @@ export default function NewPostPage() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">
-                Date Posted (if known)
+                Date Posted <span className="text-xs text-muted font-normal">(auto-detected if available)</span>
               </label>
               <input
                 type="date"
@@ -237,13 +282,13 @@ export default function NewPostPage() {
 
           <div className="mt-4">
             <label className="block text-sm font-medium mb-1">
-              Content Text
+              Content Text <span className="text-xs text-muted font-normal">(auto-populated from URL)</span>
             </label>
             <textarea
               value={contentText}
               onChange={(e) => setContentText(e.target.value)}
               rows={3}
-              placeholder="Paste or type the content text..."
+              placeholder="Auto-populated when URL is fetched, or type manually..."
               className="w-full border border-border rounded-md px-3 py-2 text-sm"
             />
           </div>
@@ -263,8 +308,8 @@ export default function NewPostPage() {
               className="w-full border border-border rounded-md px-3 py-2 text-sm"
             />
             <p className="text-xs text-muted mt-1">
-              Upload screenshots to an image host (e.g. S3, R2, Imgur) and paste
-              the URL here.
+              Auto-populated with the OG image if available. You can also upload
+              a screenshot to an image host and paste the URL here.
             </p>
           </div>
 

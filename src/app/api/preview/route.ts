@@ -9,11 +9,47 @@ async function fetchTwitterEmbed(url: string) {
     const res = await fetch(oembedUrl, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) return null;
     const data = await res.json();
+
+    // Extract tweet text from the blockquote in the embed HTML
+    let contentText: string | null = null;
+    if (data.html) {
+      // The oEmbed HTML has structure: <blockquote><p>TWEET TEXT</p> &mdash; Author (@handle) <a href="...">Date</a></blockquote>
+      const paragraphMatch = data.html.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+      if (paragraphMatch) {
+        contentText = paragraphMatch[1]
+          .replace(/<a[^>]*>([\s\S]*?)<\/a>/gi, "$1") // keep link text
+          .replace(/<br\s*\/?>/gi, "\n")
+          .replace(/<[^>]+>/g, "") // strip remaining HTML
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .trim();
+      }
+    }
+
+    // Extract date from the embed HTML - typically in the last <a> tag's text
+    let datePosted: string | null = null;
+    if (data.html) {
+      const dateMatch = data.html.match(
+        /(\w+ \d{1,2}, \d{4})<\/a>\s*<\/blockquote>/i
+      );
+      if (dateMatch) {
+        const parsed = new Date(dateMatch[1]);
+        if (!isNaN(parsed.getTime())) {
+          datePosted = parsed.toISOString().split("T")[0];
+        }
+      }
+    }
+
     return {
       title: data.author_name ? `${data.author_name} on X` : null,
-      description: null,
+      description: contentText,
       image: null,
       embedHtml: data.html || null,
+      contentText,
+      datePosted,
     };
   } catch {
     return null;
@@ -67,7 +103,29 @@ async function fetchOpenGraph(url: string) {
     const image =
       getMetaContent("og:image") || getMetaContent("twitter:image");
 
-    return { title, description, image, embedHtml: null };
+    // Try to extract a published date from meta tags
+    let datePosted: string | null = null;
+    const rawDate =
+      getMetaContent("article:published_time") ||
+      getMetaContent("og:article:published_time") ||
+      getMetaContent("date") ||
+      getMetaContent("publish_date") ||
+      getMetaContent("DC.date.issued");
+    if (rawDate) {
+      const parsed = new Date(rawDate);
+      if (!isNaN(parsed.getTime())) {
+        datePosted = parsed.toISOString().split("T")[0];
+      }
+    }
+
+    return {
+      title,
+      description,
+      image,
+      embedHtml: null,
+      contentText: description,
+      datePosted,
+    };
   } catch {
     return null;
   }
@@ -102,6 +160,8 @@ export async function POST(request: NextRequest) {
       description: null,
       image: null,
       embedHtml: null,
+      contentText: null,
+      datePosted: null,
     },
   });
 }

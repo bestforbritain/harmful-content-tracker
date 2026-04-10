@@ -131,6 +131,20 @@ async function fetchOpenGraph(url: string) {
   }
 }
 
+function resolveImageUrl(image: string | null, baseUrl: string): string | null {
+  if (!image) return null;
+  // Already absolute
+  if (image.startsWith("http://") || image.startsWith("https://")) return image;
+  // Protocol-relative
+  if (image.startsWith("//")) return `https:${image}`;
+  // Relative — resolve against the base URL
+  try {
+    return new URL(image, baseUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user) {
@@ -145,12 +159,32 @@ export async function POST(request: NextRequest) {
   const platform = detectPlatform(url);
 
   let metadata = null;
+
+  // For Twitter, try oEmbed first for content/embed, then OG for the image
   if (platform === Platform.TWITTER) {
-    metadata = await fetchTwitterEmbed(url);
+    const twitterData = await fetchTwitterEmbed(url);
+    const ogData = await fetchOpenGraph(url);
+
+    if (twitterData || ogData) {
+      metadata = {
+        title: twitterData?.title || ogData?.title || null,
+        description: twitterData?.description || ogData?.description || null,
+        image: resolveImageUrl(ogData?.image || twitterData?.image || null, url),
+        embedHtml: twitterData?.embedHtml || null,
+        contentText: twitterData?.contentText || ogData?.contentText || null,
+        datePosted: twitterData?.datePosted || ogData?.datePosted || null,
+      };
+    }
   }
 
   if (!metadata) {
-    metadata = await fetchOpenGraph(url);
+    const ogData = await fetchOpenGraph(url);
+    if (ogData) {
+      metadata = {
+        ...ogData,
+        image: resolveImageUrl(ogData.image, url),
+      };
+    }
   }
 
   return NextResponse.json({

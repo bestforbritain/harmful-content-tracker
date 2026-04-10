@@ -35,6 +35,7 @@ export default function NewPostPage() {
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [archiveStatus, setArchiveStatus] = useState("");
 
   useEffect(() => {
     fetch("/api/tags")
@@ -122,11 +123,13 @@ export default function NewPostPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    setArchiveStatus("");
 
     // Archive the screenshot/preview image to our own storage
     let archivedScreenshotUrl = screenshotUrl || null;
     const imageToArchive = screenshotUrl || preview?.metadata.image;
     if (imageToArchive) {
+      setArchiveStatus("Archiving screenshot...");
       try {
         const archiveRes = await fetch("/api/archive-image", {
           method: "POST",
@@ -139,9 +142,13 @@ export default function NewPostPage() {
         if (archiveRes.ok) {
           const { url: archivedUrl } = await archiveRes.json();
           archivedScreenshotUrl = archivedUrl;
+          setArchiveStatus("Screenshot archived successfully");
+        } else {
+          const errData = await archiveRes.json();
+          setArchiveStatus(`Archive failed: ${errData.error}`);
         }
-      } catch {
-        // Archiving failed — keep the original URL as fallback
+      } catch (e) {
+        setArchiveStatus(`Archive error: ${e instanceof Error ? e.message : "unknown"}`);
       }
     }
 
@@ -400,21 +407,32 @@ export default function NewPostPage() {
         </div>
 
         {/* Submit */}
-        <div className="flex gap-3">
-          <button
-            type="submit"
-            disabled={saving}
-            className="bg-navy text-white px-6 py-2 rounded-md font-medium hover:bg-navy-dark disabled:opacity-50 transition-colors"
-          >
-            {saving ? "Saving..." : "Save Post"}
-          </button>
-          <button
-            type="button"
-            onClick={() => router.back()}
-            className="px-6 py-2 rounded-md border border-border hover:bg-gray-50"
-          >
-            Cancel
-          </button>
+        <div className="flex flex-col gap-2">
+          {archiveStatus && (
+            <div className={`text-sm px-3 py-2 rounded ${
+              archiveStatus.includes("success") ? "bg-green-50 text-green-700" :
+              archiveStatus.includes("fail") || archiveStatus.includes("error") || archiveStatus.includes("Error") ? "bg-red-50 text-red-700" :
+              "bg-blue-50 text-blue-700"
+            }`}>
+              {archiveStatus}
+            </div>
+          )}
+          <div className="flex gap-3">
+            <button
+              type="submit"
+              disabled={saving}
+              className="bg-navy text-white px-6 py-2 rounded-md font-medium hover:bg-navy-dark disabled:opacity-50 transition-colors"
+            >
+              {saving ? "Saving..." : "Save Post"}
+            </button>
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="px-6 py-2 rounded-md border border-border hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </form>
     </div>

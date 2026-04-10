@@ -3,52 +3,64 @@ import { auth } from "@/lib/auth";
 import { detectPlatform } from "@/lib/platforms";
 import { Platform } from "@/generated/prisma/enums";
 
-async function fetchTwitterEmbed(url: string) {
+// Use fxtwitter.com API to get tweet data — works reliably from any server
+// unlike direct X.com fetches which block cloud IPs
+async function fetchTwitterData(url: string) {
   try {
-    const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}&omit_script=true`;
-    const res = await fetch(oembedUrl, { signal: AbortSignal.timeout(10000) });
+    // Extract the tweet path from the URL
+    const parsed = new URL(url);
+    const fxUrl = `https://api.fxtwitter.com${parsed.pathname}`;
+    const res = await fetch(fxUrl, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) return null;
     const data = await res.json();
+    const tweet = data.tweet;
+    if (!tweet) return null;
 
-    // Extract tweet text from the blockquote in the embed HTML
-    let contentText: string | null = null;
-    if (data.html) {
-      // The oEmbed HTML has structure: <blockquote><p>TWEET TEXT</p> &mdash; Author (@handle) <a href="...">Date</a></blockquote>
-      const paragraphMatch = data.html.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
-      if (paragraphMatch) {
-        contentText = paragraphMatch[1]
-          .replace(/<a[^>]*>([\s\S]*?)<\/a>/gi, "$1") // keep link text
-          .replace(/<br\s*\/?>/gi, "\n")
-          .replace(/<[^>]+>/g, "") // strip remaining HTML
-          .replace(/&amp;/g, "&")
-          .replace(/&lt;/g, "<")
-          .replace(/&gt;/g, ">")
-          .replace(/&quot;/g, '"')
-          .replace(/&#39;/g, "'")
-          .trim();
-      }
+    // Get the best image: media image > author avatar
+    let image: string | null = null;
+    if (tweet.media?.photos?.length) {
+      image = tweet.media.photos[0].url;
+    } else if (tweet.media?.videos?.length) {
+      image = tweet.media.videos[0].thumbnail_url;
+    } else if (tweet.author?.avatar_url) {
+      image = tweet.author.avatar_url;
     }
 
-    // Extract date from the embed HTML - typically in the last <a> tag's text
+    // Get the oEmbed HTML too
+    let embedHtml: string | null = null;
+    try {
+      const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}&omit_script=true`;
+      const oembedRes = await fetch(oembedUrl, { signal: AbortSignal.timeout(10000) });
+      if (oembedRes.ok) {
+        const oembedData = await oembedRes.json();
+        embedHtml = oembedData.html || null;
+      }
+    } catch {
+      // oEmbed failed, that's okay
+    }
+
+    // Parse date
     let datePosted: string | null = null;
-    if (data.html) {
-      const dateMatch = data.html.match(
-        /(\w+ \d{1,2}, \d{4})<\/a>\s*<\/blockquote>/i
-      );
-      if (dateMatch) {
-        const parsed = new Date(dateMatch[1]);
-        if (!isNaN(parsed.getTime())) {
-          datePosted = parsed.toISOString().split("T")[0];
-        }
+    if (tweet.created_at) {
+      const parsed = new Date(tweet.created_at);
+      if (!isNaN(parsed.getTime())) {
+        datePosted = parsed.toISOString().split("T")[0];
+      }
+    } else if (tweet.created_timestamp) {
+      const parsed = new Date(Number(tweet.created_timestamp) * 1000);
+      if (!isNaN(parsed.getTime())) {
+        datePosted = parsed.toISOString().split("T")[0];
       }
     }
+
+    const authorName = tweet.author?.name || tweet.author?.screen_name;
 
     return {
-      title: data.author_name ? `${data.author_name} on X` : null,
-      description: contentText,
-      image: null,
-      embedHtml: data.html || null,
-      contentText,
+      title: authorName ? `${authorName} on X` : null,
+      description: tweet.text || null,
+      image,
+      embedHtml,
+      contentText: tweet.text || null,
       datePosted,
     };
   } catch {
@@ -163,21 +175,8 @@ export async function POST(request: NextRequest) {
 
   let metadata = null;
 
-  // For Twitter, try oEmbed first for content/embed, then OG for the image
   if (platform === Platform.TWITTER) {
-    const twitterData = await fetchTwitterEmbed(url);
-    const ogData = await fetchOpenGraph(url);
-
-    if (twitterData || ogData) {
-      metadata = {
-        title: twitterData?.title || ogData?.title || null,
-        description: twitterData?.description || ogData?.description || null,
-        image: resolveImageUrl(ogData?.image || twitterData?.image || null, url),
-        embedHtml: twitterData?.embedHtml || null,
-        contentText: twitterData?.contentText || ogData?.contentText || null,
-        datePosted: twitterData?.datePosted || ogData?.datePosted || null,
-      };
-    }
+    metadata = await fetchTwitterData(url);
   }
 
   if (!metadata) {

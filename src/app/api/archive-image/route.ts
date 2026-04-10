@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "imageUrl required" }, { status: 400 });
   }
 
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim().replace(/^['"]|['"]$/g, '');
   if (!token) {
     return NextResponse.json(
       { error: "BLOB_READ_WRITE_TOKEN not configured" },
@@ -22,8 +22,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Download the image
+    // Download the image — include User-Agent since some CDNs block bare fetches
     const res = await fetch(imageUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; ArchiveBot/1.0)",
+        "Accept": "image/*,*/*",
+      },
+      redirect: "follow",
       signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) {
@@ -57,7 +62,7 @@ export async function POST(request: NextRequest) {
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json(
-      { error: `Failed to archive image: ${message}` },
+      { error: `Failed to archive image from ${imageUrl}: ${message}` },
       { status: 500 }
     );
   }

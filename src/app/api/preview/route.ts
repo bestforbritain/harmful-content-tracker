@@ -58,11 +58,14 @@ async function fetchTwitterEmbed(url: string) {
 
 async function fetchOpenGraph(url: string) {
   try {
+    // Use a bot-like user agent — platforms like X only serve OG meta tags
+    // to recognised crawlers, returning a JS-only shell to other agents
     const res = await fetch(url, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (compatible; HarmfulContentTracker/1.0; +https://bestforbritain.org)",
+          "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
       },
+      redirect: "follow",
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return null;

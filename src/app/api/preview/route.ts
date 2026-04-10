@@ -68,6 +68,56 @@ async function fetchTwitterData(url: string) {
   }
 }
 
+// Use Instagram's oEmbed endpoint for reliable metadata extraction
+// Instagram blocks OG tag fetching from cloud IPs, but oEmbed works
+async function fetchInstagramData(url: string) {
+  try {
+    // Clean the URL — remove query params for the oEmbed request
+    const cleanUrl = url.split("?")[0];
+    const oembedUrl = `https://api.instagram.com/oembed/?url=${encodeURIComponent(cleanUrl)}&omitscript=true`;
+    const res = await fetch(oembedUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; ArchiveBot/1.0)",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    // Extract caption from the title field
+    const caption = data.title || null;
+
+    // thumbnail_url provides the post image
+    const image = data.thumbnail_url || null;
+
+    // The author name
+    const authorName = data.author_name || null;
+
+    // Try to extract date from the HTML embed (Instagram sometimes includes a datetime attribute)
+    let datePosted: string | null = null;
+    if (data.html) {
+      const dateMatch = data.html.match(/datetime="([^"]+)"/);
+      if (dateMatch) {
+        const parsed = new Date(dateMatch[1]);
+        if (!isNaN(parsed.getTime())) {
+          datePosted = parsed.toISOString().split("T")[0];
+        }
+      }
+    }
+
+    return {
+      title: authorName ? `${authorName} on Instagram` : null,
+      description: caption,
+      image,
+      embedHtml: data.html || null,
+      contentText: caption,
+      datePosted,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchOpenGraph(url: string) {
   try {
     // Use a bot-like user agent — platforms like X only serve OG meta tags
@@ -177,6 +227,8 @@ export async function POST(request: NextRequest) {
 
   if (platform === Platform.TWITTER) {
     metadata = await fetchTwitterData(url);
+  } else if (platform === Platform.INSTAGRAM) {
+    metadata = await fetchInstagramData(url);
   }
 
   if (!metadata) {

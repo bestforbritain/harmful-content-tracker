@@ -68,14 +68,28 @@ async function fetchTwitterData(url: string) {
   }
 }
 
+// Divide a large integer (as a decimal string) by a regular number using
+// long division — avoids BigInt which requires ES2020 TypeScript target.
+function divideIntString(numStr: string, divisor: number): number {
+  let remainder = 0;
+  let result = "";
+  for (const ch of numStr) {
+    remainder = remainder * 10 + parseInt(ch, 10);
+    result += Math.floor(remainder / divisor);
+    remainder = remainder % divisor;
+  }
+  const trimmed = result.replace(/^0+/, "") || "0";
+  return parseInt(trimmed, 10);
+}
+
 // Extract date from TikTok video ID — TikTok uses snowflake IDs where the
 // upper 32 bits are a Unix timestamp in seconds, giving exact creation date.
+// Uses string long-division to avoid BigInt (requires ES2020 TypeScript target).
 function dateFromTikTokId(url: string): string | null {
   try {
     const match = url.match(/\/video\/(\d+)/);
     if (!match) return null;
-    const id = BigInt(match[1]);
-    const ts = Number(id >> 32n);
+    const ts = divideIntString(match[1], 4294967296); // 2^32
     const date = new Date(ts * 1000);
     if (isNaN(date.getTime())) return null;
     return date.toISOString().split("T")[0];

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { platformLabels } from "@/lib/platforms";
-import { Plus, Tags, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { Plus, Tags, ExternalLink, Pencil, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Platform, PostStatus } from "@/generated/prisma/enums";
 
 type PostWithTags = {
@@ -27,14 +27,18 @@ type TagWithCount = {
   _count: { posts: number };
 };
 
+const PAGE_SIZE = 20;
+
 export default function AdminDashboard() {
   const [posts, setPosts] = useState<PostWithTags[]>([]);
   const [tags, setTags] = useState<TagWithCount[]>([]);
   const [total, setTotal] = useState(0);
+  const [totalAll, setTotalAll] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
-    const params = new URLSearchParams({ limit: "20" });
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE), page: String(page) });
     if (statusFilter) params.set("status", statusFilter);
     fetch(`/api/posts?${params}`)
       .then((r) => r.json())
@@ -42,26 +46,42 @@ export default function AdminDashboard() {
         setPosts(d.posts);
         setTotal(d.total);
       });
+  }, [statusFilter, page]);
+
+  useEffect(() => {
     fetch("/api/tags")
       .then((r) => r.json())
       .then(setTags);
-  }, [statusFilter]);
+    // Fetch unfiltered total for the stats card
+    fetch("/api/posts?limit=1")
+      .then((r) => r.json())
+      .then((d) => setTotalAll(d.total));
+  }, []);
+
+  // Reset to page 1 when filter changes
+  function handleStatusFilter(value: string) {
+    setStatusFilter(value);
+    setPage(1);
+  }
 
   async function deletePost(id: string) {
     if (!confirm("Delete this post?")) return;
     await fetch(`/api/posts/${id}`, { method: "DELETE" });
     setPosts((prev) => prev.filter((p) => p.id !== id));
     setTotal((prev) => prev - 1);
+    setTotalAll((prev) => prev - 1);
   }
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE, total);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-          <p className="text-muted text-sm">
-            {total} total submissions
-          </p>
+          <p className="text-muted text-sm">{totalAll} total submissions</p>
         </div>
         <div className="flex gap-2">
           <Link
@@ -84,7 +104,7 @@ export default function AdminDashboard() {
       {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-card-bg border border-border rounded-lg p-4">
-          <div className="text-2xl font-bold text-navy">{total}</div>
+          <div className="text-2xl font-bold text-navy">{totalAll}</div>
           <div className="text-xs text-muted">Total Posts</div>
         </div>
         <div className="bg-card-bg border border-border rounded-lg p-4">
@@ -105,18 +125,25 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Filter */}
-      <div className="flex items-center gap-2 mb-4">
-        <label className="text-sm font-medium">Status:</label>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border border-border rounded px-2 py-1 text-sm"
-        >
-          <option value="">All</option>
-          <option value="DRAFT">Draft</option>
-          <option value="PUBLISHED">Published</option>
-        </select>
+      {/* Filter + pagination info */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium">Status:</label>
+          <select
+            value={statusFilter}
+            onChange={(e) => handleStatusFilter(e.target.value)}
+            className="border border-border rounded px-2 py-1 text-sm"
+          >
+            <option value="">All</option>
+            <option value="DRAFT">Draft</option>
+            <option value="PUBLISHED">Published</option>
+          </select>
+        </div>
+        {total > 0 && (
+          <p className="text-sm text-muted">
+            Showing {from}–{to} of {total}
+          </p>
+        )}
       </div>
 
       {/* Posts table */}
@@ -214,10 +241,7 @@ export default function AdminDashboard() {
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-muted">
                     No posts yet.{" "}
-                    <Link
-                      href="/admin/posts/new"
-                      className="text-navy underline"
-                    >
+                    <Link href="/admin/posts/new" className="text-navy underline">
                       Add the first one
                     </Link>
                   </td>
@@ -226,6 +250,52 @@ export default function AdminDashboard() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-gray-50">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-medium border border-border bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft size={14} /> Previous
+            </button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
+                .reduce<(number | "…")[]>((acc, p, i, arr) => {
+                  if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push("…");
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((p, i) =>
+                  p === "…" ? (
+                    <span key={`ellipsis-${i}`} className="px-2 text-muted text-sm">…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p as number)}
+                      className={`w-8 h-8 rounded text-sm font-medium ${
+                        page === p
+                          ? "bg-navy text-white"
+                          : "border border-border bg-white hover:bg-gray-50"
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+            </div>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-medium border border-border bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tag summary */}

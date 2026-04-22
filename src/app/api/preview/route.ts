@@ -68,6 +68,22 @@ async function fetchTwitterData(url: string) {
   }
 }
 
+// Extract date from TikTok video ID — TikTok uses snowflake IDs where the
+// upper 32 bits are a Unix timestamp in seconds, giving exact creation date.
+function dateFromTikTokId(url: string): string | null {
+  try {
+    const match = url.match(/\/video\/(\d+)/);
+    if (!match) return null;
+    const id = BigInt(match[1]);
+    const ts = Number(id >> 32n);
+    const date = new Date(ts * 1000);
+    if (isNaN(date.getTime())) return null;
+    return date.toISOString().split("T")[0];
+  } catch {
+    return null;
+  }
+}
+
 // Use TikTok's official oEmbed endpoint — works from any server, no auth needed
 async function fetchTikTokData(url: string) {
   try {
@@ -80,13 +96,16 @@ async function fetchTikTokData(url: string) {
     const caption = data.title || null;
     const image = data.thumbnail_url || null;
 
+    // Derive posting date from the video ID (snowflake timestamp in upper 32 bits)
+    const datePosted = dateFromTikTokId(url);
+
     return {
       title: authorName ? `${authorName} on TikTok` : null,
       description: caption,
       image,
       embedHtml: data.html || null,
       contentText: caption,
-      datePosted: null, // TikTok oEmbed does not expose a date
+      datePosted,
     };
   } catch {
     return null;

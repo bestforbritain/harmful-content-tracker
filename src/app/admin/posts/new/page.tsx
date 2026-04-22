@@ -288,7 +288,7 @@ export default function NewPostPage() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">
-                Date Posted <span className="text-xs text-muted font-normal">(auto-detected if available)</span>
+                Date Posted <span className="text-xs text-muted font-normal">(auto-detected for X, TikTok &amp; Instagram)</span>
               </label>
               <input
                 type="date"
@@ -296,6 +296,11 @@ export default function NewPostPage() {
                 onChange={(e) => setDatePosted(e.target.value)}
                 className="w-full border border-border rounded-md px-3 py-2 text-sm"
               />
+              {platform === "FACEBOOK" && !datePosted && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Facebook now hides post dates on Reels and blocks API access to this data. Please enter the date manually if known.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">

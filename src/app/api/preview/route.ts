@@ -261,13 +261,15 @@ async function fetchFacebookDate(objectId: string): Promise<string | null> {
       `https://graph.facebook.com/v22.0/${objectId}?fields=created_time&access_token=${token}`,
       { signal: AbortSignal.timeout(8000) }
     );
-    if (!res.ok) return null;
     const data = await res.json();
+    console.log(`[FB Graph] ID=${objectId} status=${res.status}`, JSON.stringify(data));
+    if (!res.ok || data.error) return null;
     if (!data.created_time) return null;
     const parsed = new Date(data.created_time);
     if (isNaN(parsed.getTime())) return null;
     return parsed.toISOString().split("T")[0];
-  } catch {
+  } catch (e) {
+    console.error("[FB Graph] fetch failed:", e);
     return null;
   }
 }

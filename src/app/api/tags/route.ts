@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { randomTagColor } from "@/lib/tagColors";
 
 export async function GET() {
   const tags = await prisma.tag.findMany({
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
   const { name, color } = await request.json();
 
   const tag = await prisma.tag.create({
-    data: { name, color: color || "#6B7280" },
+    data: { name, color: color || randomTagColor() },
   });
 
   return NextResponse.json(tag, { status: 201 });

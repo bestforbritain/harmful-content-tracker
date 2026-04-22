@@ -229,20 +229,69 @@ async function fetchInstagramData(url: string) {
   }
 }
 
+// Extract a numeric Facebook object ID from various URL formats:
+// /reel/123, /video/123, /watch?v=123, /permalink.php?story_fbid=123&id=456, /photo/123
+function extractFacebookId(url: string): string | null {
+  const patterns = [
+    /\/reel\/(\d+)/,
+    /\/video\/(\d+)/,
+    /\/watch[/?].*[?&]v=(\d+)/,
+    /story_fbid=(\d+)/,
+    /\/photo\/(\d+)/,
+    /\/posts\/(\d+)/,
+    /\/videos\/(\d+)/,
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+// Use the Graph API to fetch created_time for a public Facebook object.
+// Uses an app-level token (APP_ID|APP_SECRET) — no user OAuth needed.
+async function fetchFacebookDate(objectId: string): Promise<string | null> {
+  const appId = process.env.FB_APP_ID?.trim();
+  const appSecret = process.env.FB_APP_SECRET?.trim();
+  if (!appId || !appSecret) return null;
+
+  try {
+    const token = `${appId}|${appSecret}`;
+    const res = await fetch(
+      `https://graph.facebook.com/v22.0/${objectId}?fields=created_time&access_token=${token}`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.created_time) return null;
+    const parsed = new Date(data.created_time);
+    if (isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().split("T")[0];
+  } catch {
+    return null;
+  }
+}
+
 // Fetch Facebook data using facebookexternalhit UA — Meta whitelists its own
 // crawler from any IP, so this works reliably from Vercel's servers.
 async function fetchFacebookData(url: string) {
   try {
     const cleanUrl = url.split("?")[0];
-    const res = await fetch(cleanUrl, {
-      headers: {
-        "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return null;
 
+    // Fetch OG tags and Graph API date in parallel
+    const objectId = extractFacebookId(url);
+    const [res, datePosted] = await Promise.all([
+      fetch(cleanUrl, {
+        headers: {
+          "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(10000),
+      }),
+      objectId ? fetchFacebookDate(objectId) : Promise.resolve(null),
+    ]);
+
+    if (!res.ok) return null;
     const html = await res.text();
     if (!html.includes("og:image") && !html.includes("og:title")) return null;
 
@@ -264,14 +313,6 @@ async function fetchFacebookData(url: string) {
       getMetaContent("og:description") || getMetaContent("twitter:description") || getMetaContent("description") || ""
     );
     const image = decodeHtmlEntities(getMetaContent("og:image") || getMetaContent("twitter:image") || "");
-
-    // Try structured date meta tags (present on Facebook posts/articles)
-    let datePosted: string | null = null;
-    const rawDate = getMetaContent("article:published_time") || getMetaContent("og:article:published_time");
-    if (rawDate) {
-      const parsed = new Date(decodeHtmlEntities(rawDate));
-      if (!isNaN(parsed.getTime())) datePosted = parsed.toISOString().split("T")[0];
-    }
 
     return {
       title: title || null,

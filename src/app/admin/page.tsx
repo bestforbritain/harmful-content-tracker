@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { platformLabels } from "@/lib/platforms";
-import { Plus, Tags, ExternalLink, Pencil, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Tags, ExternalLink, Pencil, Trash2, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import type { Platform, PostStatus } from "@/generated/prisma/enums";
 
 type PostWithTags = {
@@ -34,34 +34,50 @@ export default function AdminDashboard() {
   const [tags, setTags] = useState<TagWithCount[]>([]);
   const [total, setTotal] = useState(0);
   const [totalAll, setTotalAll] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<string>("");
   const [page, setPage] = useState(1);
 
-  useEffect(() => {
+  // Filters
+  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [platformFilter, setPlatformFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+
+  const fetchPosts = useCallback(() => {
     const params = new URLSearchParams({ limit: String(PAGE_SIZE), page: String(page) });
+    if (search) params.set("search", search);
     if (statusFilter) params.set("status", statusFilter);
+    if (platformFilter) params.set("platform", platformFilter);
+    if (tagFilter) params.set("tag", tagFilter);
     fetch(`/api/posts?${params}`)
       .then((r) => r.json())
-      .then((d) => {
-        setPosts(d.posts);
-        setTotal(d.total);
-      });
-  }, [statusFilter, page]);
+      .then((d) => { setPosts(d.posts); setTotal(d.total); });
+  }, [page, search, statusFilter, platformFilter, tagFilter]);
+
+  useEffect(() => { fetchPosts(); }, [fetchPosts]);
 
   useEffect(() => {
-    fetch("/api/tags")
-      .then((r) => r.json())
-      .then(setTags);
-    // Fetch unfiltered total for the stats card
-    fetch("/api/posts?limit=1")
-      .then((r) => r.json())
-      .then((d) => setTotalAll(d.total));
+    fetch("/api/tags").then((r) => r.json()).then(setTags);
+    fetch("/api/posts?limit=1").then((r) => r.json()).then((d) => setTotalAll(d.total));
   }, []);
 
-  // Reset to page 1 when filter changes
-  function handleStatusFilter(value: string) {
-    setStatusFilter(value);
+  function resetPage() { setPage(1); }
+
+  function clearFilters() {
+    setSearch("");
+    setSearchInput("");
+    setStatusFilter("");
+    setPlatformFilter("");
+    setTagFilter("");
     setPage(1);
+  }
+
+  const hasFilters = search || statusFilter || platformFilter || tagFilter;
+
+  function handleSearchSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSearch(searchInput);
+    resetPage();
   }
 
   async function deletePost(id: string) {
@@ -88,15 +104,13 @@ export default function AdminDashboard() {
             href="/admin/posts/new"
             className="bg-navy text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-navy-dark transition-colors flex items-center gap-2"
           >
-            <Plus size={16} />
-            Add Post
+            <Plus size={16} /> Add Post
           </Link>
           <Link
             href="/admin/bulk-tag"
             className="bg-card-bg border border-border px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2"
           >
-            <Tags size={16} />
-            Bulk Tag
+            <Tags size={16} /> Bulk Tag
           </Link>
         </div>
       </div>
@@ -125,25 +139,77 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Filter + pagination info */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <label className="text-sm font-medium">Status:</label>
+      {/* Filters */}
+      <div className="bg-card-bg border border-border rounded-lg p-4 mb-4 space-y-3">
+        {/* Search */}
+        <form onSubmit={handleSearchSubmit} className="flex gap-2">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search content, URL, notes..."
+              className="w-full pl-8 pr-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-navy"
+            />
+          </div>
+          <button
+            type="submit"
+            className="bg-navy text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-navy-dark"
+          >
+            Search
+          </button>
+        </form>
+
+        {/* Dropdown filters */}
+        <div className="flex flex-wrap gap-3 items-center">
           <select
             value={statusFilter}
-            onChange={(e) => handleStatusFilter(e.target.value)}
-            className="border border-border rounded px-2 py-1 text-sm"
+            onChange={(e) => { setStatusFilter(e.target.value); resetPage(); }}
+            className="border border-border rounded-md px-3 py-2 text-sm"
           >
-            <option value="">All</option>
+            <option value="">All statuses</option>
             <option value="DRAFT">Draft</option>
             <option value="PUBLISHED">Published</option>
           </select>
+
+          <select
+            value={platformFilter}
+            onChange={(e) => { setPlatformFilter(e.target.value); resetPage(); }}
+            className="border border-border rounded-md px-3 py-2 text-sm"
+          >
+            <option value="">All platforms</option>
+            {Object.entries(platformLabels).map(([key, label]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
+          </select>
+
+          <select
+            value={tagFilter}
+            onChange={(e) => { setTagFilter(e.target.value); resetPage(); }}
+            className="border border-border rounded-md px-3 py-2 text-sm"
+          >
+            <option value="">All tags</option>
+            {tags.map((t) => (
+              <option key={t.id} value={t.name}>{t.name}</option>
+            ))}
+          </select>
+
+          {hasFilters && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-1 text-sm text-muted hover:text-red-600 transition-colors"
+            >
+              <X size={14} /> Clear filters
+            </button>
+          )}
+
+          {total > 0 && (
+            <span className="ml-auto text-sm text-muted">
+              Showing {from}–{to} of {total}
+            </span>
+          )}
         </div>
-        {total > 0 && (
-          <p className="text-sm text-muted">
-            Showing {from}–{to} of {total}
-          </p>
-        )}
       </div>
 
       {/* Posts table */}
@@ -188,20 +254,16 @@ export default function AdminDashboard() {
                         </span>
                       ))}
                       {post.tags.length > 3 && (
-                        <span className="text-xs text-muted">
-                          +{post.tags.length - 3}
-                        </span>
+                        <span className="text-xs text-muted">+{post.tags.length - 3}</span>
                       )}
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        post.status === "PUBLISHED"
-                          ? "bg-green-100 text-green-700"
-                          : "bg-yellow-100 text-yellow-700"
-                      }`}
-                    >
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                      post.status === "PUBLISHED"
+                        ? "bg-green-100 text-green-700"
+                        : "bg-yellow-100 text-yellow-700"
+                    }`}>
                       {post.status}
                     </span>
                   </td>
@@ -210,27 +272,13 @@ export default function AdminDashboard() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <Link
-                        href={`/admin/posts/${post.id}`}
-                        className="text-navy hover:text-navy-dark"
-                        title="Edit"
-                      >
+                      <Link href={`/admin/posts/${post.id}`} className="text-navy hover:text-navy-dark" title="Edit">
                         <Pencil size={16} />
                       </Link>
-                      <a
-                        href={post.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-muted hover:text-navy"
-                        title="View original"
-                      >
+                      <a href={post.url} target="_blank" rel="noopener noreferrer" className="text-muted hover:text-navy" title="View original">
                         <ExternalLink size={16} />
                       </a>
-                      <button
-                        onClick={() => deletePost(post.id)}
-                        className="text-red-400 hover:text-red-600"
-                        title="Delete"
-                      >
+                      <button onClick={() => deletePost(post.id)} className="text-red-400 hover:text-red-600" title="Delete">
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -240,10 +288,10 @@ export default function AdminDashboard() {
               {posts.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-muted">
-                    No posts yet.{" "}
-                    <Link href="/admin/posts/new" className="text-navy underline">
-                      Add the first one
-                    </Link>
+                    {hasFilters ? "No posts match your filters." : "No posts yet. "}
+                    {!hasFilters && (
+                      <Link href="/admin/posts/new" className="text-navy underline">Add the first one</Link>
+                    )}
                   </td>
                 </tr>
               )}
@@ -251,7 +299,7 @@ export default function AdminDashboard() {
           </table>
         </div>
 
-        {/* Pagination controls */}
+        {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-gray-50">
             <button
@@ -271,15 +319,13 @@ export default function AdminDashboard() {
                 }, [])
                 .map((p, i) =>
                   p === "…" ? (
-                    <span key={`ellipsis-${i}`} className="px-2 text-muted text-sm">…</span>
+                    <span key={`e-${i}`} className="px-2 text-muted text-sm">…</span>
                   ) : (
                     <button
                       key={p}
                       onClick={() => setPage(p as number)}
                       className={`w-8 h-8 rounded text-sm font-medium ${
-                        page === p
-                          ? "bg-navy text-white"
-                          : "border border-border bg-white hover:bg-gray-50"
+                        page === p ? "bg-navy text-white" : "border border-border bg-white hover:bg-gray-50"
                       }`}
                     >
                       {p}
@@ -309,9 +355,7 @@ export default function AdminDashboard() {
               style={{ backgroundColor: tag.color }}
             >
               {tag.name}
-              <span className="bg-white/20 px-1.5 rounded-full text-xs">
-                {tag._count.posts}
-              </span>
+              <span className="bg-white/20 px-1.5 rounded-full text-xs">{tag._count.posts}</span>
             </span>
           ))}
         </div>

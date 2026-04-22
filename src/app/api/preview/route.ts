@@ -229,6 +229,63 @@ async function fetchInstagramData(url: string) {
   }
 }
 
+// Fetch Facebook data using facebookexternalhit UA — Meta whitelists its own
+// crawler from any IP, so this works reliably from Vercel's servers.
+async function fetchFacebookData(url: string) {
+  try {
+    const cleanUrl = url.split("?")[0];
+    const res = await fetch(cleanUrl, {
+      headers: {
+        "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+
+    const html = await res.text();
+    if (!html.includes("og:image") && !html.includes("og:title")) return null;
+
+    const getMetaContent = (property: string): string | null => {
+      const patterns = [
+        new RegExp(`<meta[^>]*property=["']${property}["'][^>]*content=["']([^"']*)["']`, "i"),
+        new RegExp(`<meta[^>]*content=["']([^"']*)["'][^>]*property=["']${property}["']`, "i"),
+        new RegExp(`<meta[^>]*name=["']${property}["'][^>]*content=["']([^"']*)["']`, "i"),
+      ];
+      for (const pattern of patterns) {
+        const match = html.match(pattern);
+        if (match) return match[1];
+      }
+      return null;
+    };
+
+    const title = decodeHtmlEntities(getMetaContent("og:title") || getMetaContent("twitter:title") || "");
+    const description = decodeHtmlEntities(
+      getMetaContent("og:description") || getMetaContent("twitter:description") || getMetaContent("description") || ""
+    );
+    const image = decodeHtmlEntities(getMetaContent("og:image") || getMetaContent("twitter:image") || "");
+
+    // Try structured date meta tags (present on Facebook posts/articles)
+    let datePosted: string | null = null;
+    const rawDate = getMetaContent("article:published_time") || getMetaContent("og:article:published_time");
+    if (rawDate) {
+      const parsed = new Date(decodeHtmlEntities(rawDate));
+      if (!isNaN(parsed.getTime())) datePosted = parsed.toISOString().split("T")[0];
+    }
+
+    return {
+      title: title || null,
+      description: description || null,
+      image: image || null,
+      embedHtml: null,
+      contentText: description || null,
+      datePosted,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchOpenGraph(url: string) {
   try {
     // Use a bot-like user agent — platforms like X only serve OG meta tags
@@ -354,6 +411,8 @@ export async function POST(request: NextRequest) {
     metadata = await fetchInstagramData(url);
   } else if (platform === Platform.TIKTOK) {
     metadata = await fetchTikTokData(url);
+  } else if (platform === Platform.FACEBOOK) {
+    metadata = await fetchFacebookData(url);
   }
 
   if (!metadata) {

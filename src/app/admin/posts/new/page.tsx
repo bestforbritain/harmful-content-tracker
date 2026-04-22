@@ -43,7 +43,9 @@ export default function NewPostPage() {
       .then(setTags);
   }, []);
 
-  async function fetchPreview(fetchUrl?: string) {
+  // manual=true when the user explicitly clicks "Fetch Preview" — always overwrite
+  // manual=false for the auto-fetch on paste — only fill empty fields
+  async function fetchPreview(fetchUrl?: string, manual = false) {
     const targetUrl = fetchUrl || url;
     if (!targetUrl) return;
     setLoadingPreview(true);
@@ -58,14 +60,14 @@ export default function NewPostPage() {
         setPreview(data);
         setPlatform(data.platform);
 
-        // Auto-populate fields from fetched metadata
-        if (data.metadata.contentText && !contentText) {
+        // Auto-populate fields — manual fetch always overwrites, auto-paste only fills blanks
+        if (data.metadata.contentText && (manual || !contentText)) {
           setContentText(data.metadata.contentText);
         }
-        if (data.metadata.datePosted && !datePosted) {
+        if (data.metadata.datePosted && (manual || !datePosted)) {
           setDatePosted(data.metadata.datePosted);
         }
-        if (data.metadata.image && !screenshotUrl) {
+        if (data.metadata.image && (manual || !screenshotUrl)) {
           setScreenshotUrl(data.metadata.image);
         }
       }
@@ -199,7 +201,7 @@ export default function NewPostPage() {
             />
             <button
               type="button"
-              onClick={() => fetchPreview()}
+              onClick={() => fetchPreview(undefined, true)}
               disabled={!url || loadingPreview}
               className="bg-navy text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-navy-dark disabled:opacity-50 flex items-center gap-2"
             >

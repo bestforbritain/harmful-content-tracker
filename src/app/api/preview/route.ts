@@ -68,6 +68,31 @@ async function fetchTwitterData(url: string) {
   }
 }
 
+// Use TikTok's official oEmbed endpoint — works from any server, no auth needed
+async function fetchTikTokData(url: string) {
+  try {
+    const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
+    const res = await fetch(oembedUrl, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    const authorName = data.author_name || null;
+    const caption = data.title || null;
+    const image = data.thumbnail_url || null;
+
+    return {
+      title: authorName ? `${authorName} on TikTok` : null,
+      description: caption,
+      image,
+      embedHtml: data.html || null,
+      contentText: caption,
+      datePosted: null, // TikTok oEmbed does not expose a date
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Decode HTML entities in strings (e.g. &amp; → &, &#064; → @)
 function decodeHtmlEntities(str: string): string {
   return str
@@ -294,6 +319,8 @@ export async function POST(request: NextRequest) {
     metadata = await fetchTwitterData(url);
   } else if (platform === Platform.INSTAGRAM) {
     metadata = await fetchInstagramData(url);
+  } else if (platform === Platform.TIKTOK) {
+    metadata = await fetchTikTokData(url);
   }
 
   if (!metadata) {

@@ -280,20 +280,22 @@ async function fetchFacebookData(url: string) {
   try {
     const cleanUrl = url.split("?")[0];
 
-    // Fetch OG tags and Graph API date in parallel
-    const objectId = extractFacebookId(url);
-    const [res, datePosted] = await Promise.all([
-      fetch(cleanUrl, {
-        headers: {
-          "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
-        },
-        redirect: "follow",
-        signal: AbortSignal.timeout(10000),
-      }),
-      objectId ? fetchFacebookDate(objectId) : Promise.resolve(null),
-    ]);
-
+    // Fetch the page first — this follows redirects (share links → real URLs)
+    // then extract the numeric object ID from the final resolved URL
+    const res = await fetch(cleanUrl, {
+      headers: {
+        "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    });
     if (!res.ok) return null;
+
+    // res.url is the final URL after any redirects (e.g. share/r/abc → /reel/123)
+    const resolvedUrl = res.url || cleanUrl;
+    const objectId = extractFacebookId(resolvedUrl) || extractFacebookId(cleanUrl);
+    const datePosted = objectId ? await fetchFacebookDate(objectId) : null;
+
     const html = await res.text();
     if (!html.includes("og:image") && !html.includes("og:title")) return null;
 

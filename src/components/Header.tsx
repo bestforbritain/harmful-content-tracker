@@ -10,7 +10,6 @@ export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const links = [
-    { href: "/", label: "Home" },
     { href: "/repository", label: "Repository" },
     { href: "/dashboard", label: "Dashboard" },
     { href: "/submit", label: "Report Content" },
